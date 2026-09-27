@@ -2,3 +2,9 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .env
+
+# Raw source files (weekly PDF/XLSX exports, parsed JSON payloads) — these are
+# large (uploads/ was ~100MB across espn_batch2, yahoo_week2_pdfs,
+# yahoo_week3_pdfs) and are archival inputs, not app code or the live db.
+# Keep them on disk locally; stop committing them to git.
+uploads/
