@@ -269,6 +269,135 @@ def ensure_season_lock(conn, season_id, today=None):
     return True
 
 
+def ensure_weekly_projection_lock(conn, source_name, week_id, today=None):
+    """
+    Idempotent check-and-lock, mirroring ensure_season_lock but scoped per
+    (source_name, week_id) rather than per season -- explicit 2026-09-16
+    policy decision: a source's weekly projections lock the moment its
+    FIRST successful ingestion for that week completes, not when the week
+    or games begin. Different sources upload on different days, so this
+    can't live on the shared `weeks` row -- it's tracked per source in
+    weekly_projection_locks.
+
+    Freezes every currently-current scope='weekly' projection for this
+    source+week. Safe to call after every successful weekly ingest -- a
+    no-op once already locked (checked via weekly_projection_locks, not by
+    scanning for an already-frozen row, so a week with zero auto-accepted
+    rows on its first run -- everything sent to review -- still locks
+    correctly and doesn't look "never locked" to a later call).
+    Returns True if this call performed the lock, False otherwise.
+    """
+    import datetime
+    today = today or datetime.date.today().isoformat()
+    already = conn.execute(
+        "SELECT 1 FROM weekly_projection_locks WHERE source_name=? AND week_id=?",
+        (source_name, week_id),
+    ).fetchone()
+    if already:
+        return False
+    conn.execute(
+        "UPDATE projections SET is_frozen=1 WHERE source_name=? AND week_id=? AND scope='weekly' AND is_current=1",
+        (source_name, week_id),
+    )
+    conn.execute(
+        "INSERT INTO weekly_projection_locks (source_name, week_id, locked_at) VALUES (?, ?, ?)",
+        (source_name, week_id, today),
+    )
+    conn.commit()
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Late-after-lock handling (2026-10-07 decision)
+#
+# ensure_weekly_projection_lock freezes the rows that exist when a source's
+# first ingestion for a week completes, and records the lock in
+# weekly_projection_locks. add_projection's frozen check only fires when an
+# EXISTING current row for the same player/stat/source/week is frozen, so a
+# brand-new identity arriving after the lock (a player added to the roster
+# later, a review-queue acceptance) used to be inserted unfrozen -- and, being
+# captured after the lock (possibly after the games), was not a valid
+# pre-game projection for accuracy comparison either.
+#
+# Two separate guarantees, deliberately not conflated:
+#   1. Immutability: such a row is now stored frozen (is_frozen=1).
+#   2. Comparison validity: such a row is tagged LATE_AFTER_LOCK_TAG in notes
+#      at insert time and is excluded from accuracy comparisons by
+#      is_projection_eligible_for_comparison. Freezing stops later mutation;
+#      it does not make a post-lock capture a legitimate pre-lock forecast.
+# ---------------------------------------------------------------------------
+
+LATE_AFTER_LOCK_TAG = "[late-after-lock]"
+
+
+def _lock_source_candidates(source_name):
+    """A row's source_name may carry the ' (live)' suffix; its lock row is
+    keyed by the base source (same mapping freeze_late_weekly_rows.py uses)."""
+    base = source_name.replace(" (live)", "") if source_name else source_name
+    return (source_name, base)
+
+
+def get_weekly_projection_lock(conn, source_name, week_id):
+    """The weekly_projection_locks row governing this source+week, or None.
+    Authoritative lock state -- never inferred from timestamps."""
+    if not source_name or week_id is None:
+        return None
+    exact, base = _lock_source_candidates(source_name)
+    return conn.execute(
+        "SELECT source_name, week_id, locked_at FROM weekly_projection_locks "
+        "WHERE week_id=? AND source_name IN (?, ?)",
+        (week_id, exact, base),
+    ).fetchone()
+
+
+def _parse_utc(ts):
+    import datetime
+    return datetime.datetime.strptime(ts.strip().replace("T", " ")[:19], "%Y-%m-%d %H:%M:%S").replace(
+        tzinfo=datetime.timezone.utc)
+
+
+def projection_created_after_lock(created_at, locked_at, local_tz=None):
+    """
+    True only when a row's created_at is provably AFTER the lock.
+
+    Actual lock semantics in this project (do not approximate):
+      - projections.created_at is UTC (SQLite datetime('now')).
+      - weekly_projection_locks.locked_at, as written by
+        ensure_weekly_projection_lock, is a DATE ONLY ('YYYY-MM-DD') taken from
+        datetime.date.today() -- the machine's LOCAL calendar date, no time of day.
+      - A full 'YYYY-MM-DD HH:MM:SS' locked_at is interpreted as UTC (the same
+        convention as created_at), so a future precise lock compares exactly.
+
+    Date-only lock: created_at is converted to the local calendar (local_tz, or
+    the system timezone when None -- the same clock date.today() used) and is
+    "after" only if that local date is strictly later than the lock date. A
+    naive date(created_at) > locked_at comparison is wrong here: a row created
+    at 8pm local on lock day already has the next UTC date. Rows created on
+    the lock day itself are NOT provably post-lock from timestamps alone (the
+    lock has no time of day); the insert-time tag, not this function, is what
+    catches those.
+    """
+    if not created_at or not locked_at:
+        return False
+    import datetime
+    created = _parse_utc(created_at)
+    locked_at = locked_at.strip()
+    if len(locked_at) <= 10:
+        local_date = created.astimezone(local_tz).date() if local_tz else created.astimezone().date()
+        return local_date > datetime.date.fromisoformat(locked_at)
+    return created > _parse_utc(locked_at)
+
+
+def is_projection_eligible_for_comparison(notes, created_at, locked_at, local_tz=None):
+    """A weekly projection may enter an accuracy comparison only if it was not
+    tagged late-after-lock at insert time AND is not provably created after its
+    source+week lock. locked_at=None (no lock for this source/week) means no
+    lock-based exclusion applies."""
+    if notes and LATE_AFTER_LOCK_TAG in notes:
+        return False
+    return not projection_created_after_lock(created_at, locked_at, local_tz)
+
+
 def add_projection(conn, player_id, season_id, week_id, stat_name, projected_value,
                     source_type="user", source_name=None, notes=None, is_frozen=False, provenance_ref=None,
                     scope="weekly", today=None):
@@ -333,6 +462,17 @@ def add_projection(conn, player_id, season_id, week_id, stat_name, projected_val
         reason = ("the season has started and season-long projections are locked for end-of-season comparison"
                    if scope == "season" else "the week has already begun")
         raise ValueError(f"Cannot modify this projection — {reason}.")
+
+    # Late-after-lock: a new row for a source+week that is already locked is
+    # stored frozen and tagged (see the block comment above). Runs after the
+    # idempotent/frozen checks so existing lock behavior is unchanged, and
+    # never fires for scope='season' or sourceless (manual 'User') rows.
+    if scope == "weekly" and get_weekly_projection_lock(conn, source_name, week_id) is not None:
+        is_frozen = True
+        if not notes:
+            notes = LATE_AFTER_LOCK_TAG
+        elif LATE_AFTER_LOCK_TAG not in notes:
+            notes = f"{notes} {LATE_AFTER_LOCK_TAG}"
 
     version = 1
     if existing:

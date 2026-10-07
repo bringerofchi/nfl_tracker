@@ -25,7 +25,8 @@ def _canonical_actuals_source_id(conn) -> Optional[int]:
 
 
 def get_projection_stat_values(conn, player_id: int, week_id, position: str,
-                                source_name: str = "User", scope: str = "weekly") -> Dict[str, Optional[float]]:
+                                source_name: str = "User", scope: str = "weekly",
+                                comparison_only: bool = True) -> Dict[str, Optional[float]]:
     """Current, trusted projected raw stats for this player/week (or player/season
     when scope='season' and week_id=None), one source at a time (spec sec. 12:
     sources are never merged). Missing stat_names -> None.
@@ -34,13 +35,27 @@ def get_projection_stat_values(conn, player_id: int, week_id, position: str,
     season-scope support here — week_id=None (season-scope) would otherwise
     never match via bare equality, the same NULL-safety class of bug already
     fixed for the repository layer's identity lookups. This function had
-    never been extended to actually query season-scope data at all until now."""
+    never been extended to actually query season-scope data at all until now.
+
+    comparison_only (2026-10-07 policy): for scope='weekly', rows captured after
+    their source+week lock (tagged late-after-lock at insert, or provably created
+    after the lock -- see repository.is_projection_eligible_for_comparison) are
+    NOT valid pre-game projections and are excluded, so they can never enter a
+    projected-vs-actual comparison. Excluded stats read as None, exactly like a
+    stat the source never provided. Season-scope rows are unaffected. Pass
+    comparison_only=False to see every current row regardless."""
+    from db import repository as repo
     defs = get_stat_names_for_position(conn, position)
     rows = conn.execute(
-        """SELECT stat_name, projected_value FROM projections
+        """SELECT stat_name, projected_value, created_at, notes FROM projections
            WHERE player_id=? AND week_id IS ? AND source_name=? AND scope=? AND is_current=1""",
         (player_id, week_id, source_name, scope),
     ).fetchall()
+    if comparison_only and scope == "weekly" and week_id is not None:
+        lock = repo.get_weekly_projection_lock(conn, source_name, week_id)
+        locked_at = lock["locked_at"] if lock else None
+        rows = [r for r in rows
+                if repo.is_projection_eligible_for_comparison(r["notes"], r["created_at"], locked_at)]
     found = {r["stat_name"]: r["projected_value"] for r in rows}
     return {name: found.get(name) for name in defs}
 
