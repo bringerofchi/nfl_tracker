@@ -450,12 +450,24 @@ def ingest_collector_batch(conn, adapter, season_id: int, week_number: int,
                     duplicates_skipped.append(dup["proposed_id"])
                     continue
 
-            disposition, proposed_id = _route_field(
-                conn, import_id, obs.player_name_raw, resolved_player_id, identity_match_type,
-                obs.position_hint, obs.data_type, season_id, obs_week_id, obs.week_number, None,
-                adapter.source_name, obs.stat_name, obs.value, obs.confidence, flags, auto_accept_threshold,
-                ranking_type=obs.ranking_type, scope=obs.scope,
-            )
+            try:
+                disposition, proposed_id = _route_field(
+                    conn, import_id, obs.player_name_raw, resolved_player_id, identity_match_type,
+                    obs.position_hint, obs.data_type, season_id, obs_week_id, obs.week_number, None,
+                    adapter.source_name, obs.stat_name, obs.value, obs.confidence, flags, auto_accept_threshold,
+                    ranking_type=obs.ranking_type, scope=obs.scope,
+                )
+            except ValueError as e:
+                # Per-row error isolation (app invariant: batch ingestion skips a
+                # failing row rather than aborting the whole batch). Concretely,
+                # this is what a frozen-projection conflict raises -- either the
+                # season lock (ensure_season_lock) or the per-source weekly lock
+                # (ensure_weekly_projection_lock, applied at the end of this
+                # function) -- and one locked row must not sacrifice every other
+                # observation in the same fetch just because it landed later in
+                # the loop than the lock-triggering row.
+                errors.append({"observation": obs.player_name_raw, "stat_name": obs.stat_name, "reason": str(e)})
+                continue
             if disposition == "auto_accepted":
                 auto_accepted.append(proposed_id)
             elif disposition == "sent_to_review":
@@ -498,6 +510,16 @@ def ingest_collector_batch(conn, adapter, season_id: int, week_number: int,
          collection_run_id),
     )
     conn.commit()
+
+    # 2026-09-16 policy: a source's weekly projections lock the moment its
+    # FIRST successful ingestion for that week completes -- not when the
+    # week/games begin. Applied here (not inside the loop) so it fires once
+    # per run regardless of how many weekly-projection rows it touched, and
+    # only for a genuine weekly-scoped run (week_id is None for a season-scope
+    # fetch, which this lock does not apply to -- see ensure_season_lock).
+    if week_id is not None:
+        repo.ensure_weekly_projection_lock(conn, adapter.source_name, week_id)
+
     return {"collection_run_id": collection_run_id, "import_id": import_id, "fetch_failed": False,
             "auto_accepted": auto_accepted, "sent_to_review": sent_to_review,
             "duplicates_skipped": duplicates_skipped, "errors": errors}

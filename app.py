@@ -42,6 +42,137 @@ def set_season_start():
     return redirect(url_for("dashboard"))
 
 
+@app.route("/coverage")
+def coverage_dashboard():
+    return render_template("coverage.html")
+
+
+@app.route("/api/coverage")
+def api_coverage():
+    conn = get_conn()
+    season = conn.execute("SELECT * FROM seasons ORDER BY year DESC LIMIT 1").fetchone()
+    season_id = season["season_id"] if season else None
+
+    total_players = conn.execute("SELECT COUNT(*) c FROM players").fetchone()["c"]
+    total_sources = conn.execute("SELECT COUNT(DISTINCT source_name) c FROM projections").fetchone()["c"]
+    total_projection_rows = conn.execute("SELECT COUNT(*) c FROM projections WHERE is_current=1").fetchone()["c"]
+    total_actual_rows = conn.execute("SELECT COUNT(*) c FROM statistics WHERE is_current=1").fetchone()["c"]
+    current_week = conn.execute(
+        "SELECT MAX(week_number) w FROM weeks WHERE season_id=? AND week_id IN "
+        "(SELECT DISTINCT week_id FROM projections WHERE scope='weekly' AND is_current=1)", (season_id,)
+    ).fetchone()["w"]
+
+    locks_rows = conn.execute(
+        """SELECT l.source_name, l.week_id, l.locked_at, w.week_number
+           FROM weekly_projection_locks l JOIN weeks w ON w.week_id=l.week_id
+           ORDER BY l.locked_at DESC"""
+    ).fetchall()
+    locks = []
+    for l in locks_rows:
+        rows_frozen = conn.execute(
+            "SELECT COUNT(*) c FROM projections WHERE source_name=? AND week_id=? AND scope='weekly' AND is_current=1 AND is_frozen=1",
+            (l["source_name"], l["week_id"]),
+        ).fetchone()["c"]
+        locks.append({
+            "source_name": l["source_name"], "week_number": l["week_number"],
+            "locked_at": l["locked_at"], "rows_frozen": rows_frozen,
+        })
+    locked_set = {(l["source_name"], l["week_number"]) for l in locks}
+
+    source_names = [r["source_name"] for r in conn.execute("SELECT DISTINCT source_name FROM projections ORDER BY source_name")]
+    sources = []
+    for sn in source_names:
+        weeks = []
+        season_row = conn.execute(
+            "SELECT COUNT(DISTINCT player_id) players, COUNT(*) rows FROM projections "
+            "WHERE source_name=? AND scope='season' AND is_current=1", (sn,)
+        ).fetchone()
+        weeks.append({"scope": "season", "week_number": None,
+                      "players": season_row["players"], "rows": season_row["rows"], "locked": False})
+        weekly_rows = conn.execute(
+            """SELECT w.week_number, COUNT(DISTINCT pr.player_id) players, COUNT(*) rows
+               FROM projections pr JOIN weeks w ON w.week_id=pr.week_id
+               WHERE pr.source_name=? AND pr.scope='weekly' AND pr.is_current=1
+               GROUP BY w.week_number ORDER BY w.week_number""", (sn,)
+        ).fetchall()
+        for wr in weekly_rows:
+            weeks.append({
+                "scope": "weekly", "week_number": wr["week_number"],
+                "players": wr["players"], "rows": wr["rows"],
+                "locked": (sn, wr["week_number"]) in locked_set,
+            })
+        actual = conn.execute(
+            """SELECT COUNT(DISTINCT st.player_id) players, COUNT(*) rows FROM statistics st
+               JOIN sources s ON s.source_id=st.source_id WHERE s.name=? AND st.is_current=1""", (sn,)
+        ).fetchone()
+        sources.append({
+            "source_name": sn, "weeks": weeks,
+            "actual_players": actual["players"] or 0, "actual_rows": actual["rows"] or 0,
+        })
+
+    review_total = conn.execute("SELECT COUNT(*) c FROM review_items WHERE status='pending'").fetchone()["c"]
+    by_reason = [dict(r) for r in conn.execute(
+        "SELECT reason, COUNT(*) count FROM review_items WHERE status='pending' GROUP BY reason ORDER BY count DESC"
+    ).fetchall()]
+    by_source = [dict(r) for r in conn.execute(
+        "SELECT source_name, COUNT(*) count FROM review_items WHERE status='pending' GROUP BY source_name ORDER BY count DESC"
+    ).fetchall()]
+    recent_raw = conn.execute(
+        "SELECT * FROM review_items WHERE status='pending' ORDER BY created_at DESC LIMIT 25"
+    ).fetchall()
+    recent = []
+    for r in recent_raw:
+        try:
+            details = json.loads(r["details_json"]) if r["details_json"] else {}
+        except (TypeError, ValueError):
+            details = {}
+        recent.append({
+            "source_name": r["source_name"],
+            "player": details.get("extracted_player_name") or details.get("name"),
+            "reason": r["reason"],
+            "stat_name": details.get("stat_name"),
+            "value": details.get("stat_value") if "stat_value" in details else details.get("new_value"),
+            "created_at": r["created_at"],
+        })
+
+    runs_raw = conn.execute(
+        """SELECT cr.*, s.name as source_name, w.week_number
+           FROM collection_runs cr JOIN sources s ON s.source_id=cr.source_id
+           LEFT JOIN weeks w ON w.week_id=cr.week_id
+           ORDER BY cr.started_at DESC LIMIT 30"""
+    ).fetchall()
+    runs = []
+    for r in runs_raw:
+        counts = {"auto_accepted": 0, "sent_to_review": 0, "errors": 0}
+        if r["notes"]:
+            try:
+                parsed = json.loads(r["notes"])
+                counts["auto_accepted"] = parsed.get("auto_accepted", 0)
+                counts["sent_to_review"] = parsed.get("sent_to_review", 0)
+                counts["errors"] = parsed.get("errors", 0)
+            except (TypeError, ValueError):
+                pass
+        runs.append({
+            "run_id": r["run_id"], "source_name": r["source_name"], "week_number": r["week_number"],
+            "status": r["status"], "started_at": r["started_at"],
+            "auto_accepted": counts["auto_accepted"], "sent_to_review": counts["sent_to_review"],
+            "errors": counts["errors"],
+        })
+
+    conn.close()
+    return {
+        "summary": {
+            "total_players": total_players, "total_sources": total_sources,
+            "total_projection_rows": total_projection_rows, "total_actual_rows": total_actual_rows,
+            "season_year": season["year"] if season else None, "current_week": current_week,
+        },
+        "sources": sources,
+        "locks": locks,
+        "review": {"total": review_total, "by_reason": by_reason, "by_source": by_source, "recent": recent},
+        "runs": runs,
+    }
+
+
 @app.route("/")
 def dashboard():
     conn = get_conn()
@@ -547,20 +678,36 @@ def bulk_reject_review():
 
 @app.route("/export/<table>")
 def export_csv(table):
-    import csv, io
+    import csv, io, os, sqlite3
     from flask import Response
     allowed = {"players", "statistics", "projections", "rankings", "corrections", "review_items"}
     if table not in allowed:
         return "Not found", 404
     conn = get_conn()
-    rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+    rows = [dict(r) for r in conn.execute(f"SELECT * FROM {table}").fetchall()]
     conn.close()
+
+    if table == "review_items":
+        # 2026-09-27 decision: archival (db/archive.py) moves resolved
+        # review_items out of the live db once they're old/closed enough,
+        # but a caller asking for review items should keep getting the
+        # complete history, not a silently-narrowed live-only slice. Union
+        # in archive.db's copy when it exists. Not existing yet (nothing
+        # archived) is normal, not an error -- just nothing extra to add.
+        archive_path = os.path.join(os.path.dirname(__file__), "db", "archive.db")
+        if os.path.exists(archive_path):
+            arc_conn = sqlite3.connect(archive_path)
+            arc_conn.row_factory = sqlite3.Row
+            rows += [dict(r) for r in arc_conn.execute("SELECT * FROM review_items").fetchall()]
+            arc_conn.close()
+        rows.sort(key=lambda r: r["review_id"])
+
     output = io.StringIO()
     if rows:
         writer = csv.DictWriter(output, fieldnames=rows[0].keys())
         writer.writeheader()
         for r in rows:
-            writer.writerow(dict(r))
+            writer.writerow(r)
     return Response(output.getvalue(), mimetype="text/csv",
                      headers={"Content-Disposition": f"attachment;filename={table}.csv"})
 

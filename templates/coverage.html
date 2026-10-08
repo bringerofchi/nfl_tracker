@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NFL Tracker — Data Coverage</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,300;0,400;0,600;0,700;0,800;1,700&family=JetBrains+Mono:wght@400;500;700&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/coverage.css') }}" />
+</head>
+<body>
+<div id="app">
+
+  <!-- ── HEADER ──────────────────────────────────────────────── -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="brand">
+        <span class="brand-ball">🏈</span>
+        <div class="brand-text">
+          <span class="brand-name">FANTASY <span class="accent-green">TRACKER</span></span>
+          <span class="brand-sub">DATA COVERAGE</span>
+        </div>
+      </div>
+
+      <nav class="nav-tabs" role="tablist">
+        <button class="nav-tab active" data-tab="overview" role="tab">OVERVIEW</button>
+        <button class="nav-tab" data-tab="sources" role="tab">SOURCES &amp; WEEKS</button>
+        <button class="nav-tab" data-tab="review" role="tab">REVIEW QUEUE</button>
+        <button class="nav-tab" data-tab="runs" role="tab">RUNS &amp; LOCKS</button>
+      </nav>
+
+      <div class="header-status">
+        <span class="status-pill" id="statusPill">
+          <span class="status-dot" id="statusDot"></span>
+          <span class="status-text" id="statusText">Loading</span>
+        </span>
+        <button class="btn-refresh" id="btnRefresh" title="Refresh data">
+          <span class="refresh-icon">↻</span> REFRESH
+        </button>
+        <span class="date-badge" id="dateBadge"></span>
+      </div>
+    </div>
+    <div class="header-glow"></div>
+  </header>
+
+  <div class="app-nav-back">
+    <a href="/">&larr; classic dashboard</a>
+    <a href="/players">players</a>
+    <a href="/projections">projections</a>
+    <a href="/statistics">actuals</a>
+    <a href="/rankings">rankings</a>
+    <a href="/ingest">upload screenshot</a>
+    <a href="/scheduler">scheduler</a>
+    <a href="/review">review queue (full)</a>
+  </div>
+
+  <main class="main-content">
+
+    <!-- ═══════════════════ OVERVIEW TAB ═══════════════════════ -->
+    <div id="tab-overview" class="tab-panel active">
+      <div class="summary-strip" id="summaryStrip">
+        <div class="sum-item">
+          <span class="sum-val" id="sumPlayers">—</span>
+          <span class="sum-lbl">TOTAL PLAYERS</span>
+        </div>
+        <div class="sum-divider"></div>
+        <div class="sum-item">
+          <span class="sum-val" id="sumSources">—</span>
+          <span class="sum-lbl">SOURCES TRACKED</span>
+        </div>
+        <div class="sum-divider"></div>
+        <div class="sum-item">
+          <span class="sum-val accent-gold" id="sumProjRows">—</span>
+          <span class="sum-lbl">PROJECTION ROWS</span>
+        </div>
+        <div class="sum-divider"></div>
+        <div class="sum-item">
+          <span class="sum-val accent-green" id="sumActualRows">—</span>
+          <span class="sum-lbl">ACTUAL STAT ROWS</span>
+        </div>
+        <div class="sum-divider"></div>
+        <div class="sum-item">
+          <span class="sum-val" id="sumLocked">—</span>
+          <span class="sum-lbl">WEEKLY SETS LOCKED</span>
+        </div>
+        <div class="sum-divider"></div>
+        <div class="sum-item">
+          <span class="sum-val accent-red" id="sumReview">—</span>
+          <span class="sum-lbl">PENDING REVIEW</span>
+        </div>
+        <div class="sum-divider"></div>
+        <div class="sum-item">
+          <span class="sum-val text-dim" id="sumUpdated">—</span>
+          <span class="sum-lbl">LAST UPDATE</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2 class="panel-heading" style="margin-bottom:16px;">SEASON PROGRESS</h2>
+        <div id="seasonProgress" class="season-progress"></div>
+      </div>
+
+      <div class="panel">
+        <h2 class="panel-heading" style="margin-bottom:16px;">COVERAGE AT A GLANCE</h2>
+        <div class="table-scroll">
+          <table class="data-table" id="glanceTable">
+            <thead>
+              <tr><th>SOURCE</th><th>SEASON PROJ</th><th>WEEK 1 PROJ</th><th>WEEK 2 PROJ</th><th>ACTUALS</th></tr>
+            </thead>
+            <tbody id="glanceTableBody">
+              <tr class="empty-row"><td colspan="5">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════ SOURCES TAB ═════════════════════════ -->
+    <div id="tab-sources" class="tab-panel">
+      <div class="toolbar">
+        <div class="filter-group">
+          <span class="toolbar-label">SCOPE</span>
+          <button class="chip active" data-scope-filter="all">ALL</button>
+          <button class="chip" data-scope-filter="season">SEASON</button>
+          <button class="chip" data-scope-filter="weekly">WEEKLY</button>
+        </div>
+      </div>
+      <div class="cards-grid" id="sourcesGrid">
+        <div class="skeleton-state"><div class="game-skeleton"></div><div class="game-skeleton"></div><div class="game-skeleton"></div></div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════ REVIEW QUEUE TAB ════════════════════ -->
+    <div id="tab-review" class="tab-panel">
+      <div class="kpi-grid" id="reviewKpiGrid">
+        <div class="kpi-card">
+          <div class="kpi-val accent-red" id="kpiReviewTotal">0</div>
+          <div class="kpi-label">PENDING ITEMS</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-val" id="kpiReviewSources">—</div>
+          <div class="kpi-label">SOURCES INVOLVED</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-val" id="kpiReviewReasons">—</div>
+          <div class="kpi-label">TOP REASON</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="panel-heading">BY REASON</h2>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table" id="reviewReasonTable">
+            <thead><tr><th>REASON</th><th>COUNT</th></tr></thead>
+            <tbody id="reviewReasonBody"><tr class="empty-row"><td colspan="2">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="panel-heading">BY SOURCE</h2>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table" id="reviewSourceTable">
+            <thead><tr><th>SOURCE</th><th>COUNT</th></tr></thead>
+            <tbody id="reviewSourceBody"><tr class="empty-row"><td colspan="2">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="panel-heading">RECENT PENDING ITEMS</h2>
+          <div class="panel-actions">
+            <a class="btn-secondary" href="/review">OPEN FULL REVIEW QUEUE →</a>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table" id="reviewItemsTable">
+            <thead><tr><th>SOURCE</th><th>PLAYER</th><th>REASON</th><th>STAT</th><th>VALUE</th><th>CREATED</th></tr></thead>
+            <tbody id="reviewItemsBody"><tr class="empty-row"><td colspan="6">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════ RUNS & LOCKS TAB ════════════════════ -->
+    <div id="tab-runs" class="tab-panel">
+      <div class="panel">
+        <h2 class="panel-heading" style="margin-bottom:16px;">WEEKLY PROJECTION LOCKS</h2>
+        <p class="panel-desc">A source's weekly projections freeze the moment its first successful ingestion for that week completes — locked rows can never be silently overwritten.</p>
+        <div class="table-scroll">
+          <table class="data-table" id="locksTable">
+            <thead><tr><th>SOURCE</th><th>WEEK</th><th>LOCKED AT</th><th>ROWS FROZEN</th></tr></thead>
+            <tbody id="locksTableBody"><tr class="empty-row"><td colspan="4">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2 class="panel-heading" style="margin-bottom:16px;">COLLECTION RUN HISTORY</h2>
+        <div class="table-scroll">
+          <table class="data-table" id="runsTable">
+            <thead><tr><th>RUN</th><th>SOURCE</th><th>WEEK</th><th>STATUS</th><th>STARTED</th><th>AUTO-ACCEPTED</th><th>REVIEW</th><th>ERRORS</th></tr></thead>
+            <tbody id="runsTableBody"><tr class="empty-row"><td colspan="8">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script src="{{ url_for('static', filename='js/coverage.js') }}"></script>
+</body>
+</html>

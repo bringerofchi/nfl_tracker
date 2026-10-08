@@ -357,6 +357,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_pending_proposal
     ON proposed_observations(extracted_player_name, COALESCE(week_id, -1), stat_name, stat_value, ranking_type)
     WHERE disposition = 'sent_to_review';
 
+-- Per-source, per-week weekly projection lock (2026-09-16 policy decision):
+-- a source's weekly projections freeze the moment its FIRST successful
+-- ingestion for that week completes -- not when the week/game begins.
+-- Different sources upload on different days, so this can't live as a
+-- single flag on the shared `weeks` row; it's tracked per source here.
+-- See db.repository.ensure_weekly_projection_lock.
+CREATE TABLE IF NOT EXISTS weekly_projection_locks (
+    source_name     TEXT NOT NULL,
+    week_id         INTEGER NOT NULL REFERENCES weeks(week_id),
+    locked_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (source_name, week_id)
+);
+
 -- ============================================================
 -- PHASE 4B: SCHEDULER
 --

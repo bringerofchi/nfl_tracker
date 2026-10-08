@@ -36,10 +36,27 @@ from typing import List
 
 from ingestion.collector import SourceAdapter, NormalizedObservation, AdapterUnavailable
 
-_SPLIT_COL = 56  # empirically confirmed against real extracted text: this is where
-                 # the "YEAR / 2025 STATISTICS / 2026 PROJECTIONS / 2026 OUTLOOK"
-                 # column consistently starts, regardless of what (if anything)
-                 # occupies the player-name/team/position column on the same line.
+_SPLIT_COL = 56  # historical constant, no longer used for splitting (see 2026-09-18
+                 # fix below) -- kept only because nothing else in this file referenced
+                 # it and removing it isn't necessary to fix the actual bug.
+                 #
+                 # 2026-09-18 fix: this WAS a fixed column offset the original author
+                 # "empirically confirmed" against one real PDF export. Against a real,
+                 # larger 14-page "Complete 2026 Projections" export (the genuine Full
+                 # Projections tab, not Sortable), it silently broke: the right-hand
+                 # "YEAR / 2025 STATISTICS / ..." column's actual start position varies
+                 # per player block (observed at column 61 on page 1, column 31-33 on
+                 # later pages) -- pdftotext's -layout output isn't a truly fixed-width
+                 # grid across an entire multi-page print job; it shifts with whatever
+                 # left-column content (name length, ad-banner overlap) is on that line.
+                 # A fixed split point only worked for whichever blocks happened to sit
+                 # right of it; every block whose YEAR column started BEFORE column 56
+                 # was silently dropped (no error -- the block-boundary regex just never
+                 # matched, so those players never became a block at all). Concretely,
+                 # this dropped all but 3 of the players in a real 14-page, ~400-player
+                 # export the very first time it was run against genuine data. Replaced
+                 # with a per-line regex search for "YEAR" as a whole word, wherever it
+                 # actually falls on that line -- no fixed offset assumption.
 
 _POSITIONS = {"QB", "RB", "WR", "TE"}
 _STATUS_WORDS = {"Questionable", "Injured Reserve", "Out", "Suspended", "Doubtful"}
@@ -100,23 +117,50 @@ class ESPNSeasonProjectionsAdapter(SourceAdapter):
             raise AdapterUnavailable(f"pdftotext failed on {pdf_path}: {result.stderr}", transient=False)
         return result.stdout
 
-    def _split_cols(self, line: str):
-        return line[:_SPLIT_COL].strip(), line[_SPLIT_COL:].strip()
+    _YEAR_RE = re.compile(r"\bYEAR\b")
+    # Ordered markers for the right-hand ("YEAR"/stats) column. Checked in this
+    # order per line since "2025 STATISTICS"/"2026 PROJECTIONS"/"2026 OUTLOOK:"
+    # can share a physical line with the left-hand (name/team-pos/status)
+    # column -- the two columns are printed side by side, and how much
+    # vertical padding separates them varies per player block (observed both
+    # "name" and "name    2025 STATISTICS  <numbers>" on one line in the same
+    # real export), so every line needs this same left/right split, not just
+    # the header line.
+    _RIGHT_MARKERS = ("2025 STATISTICS", "2026 PROJECTIONS", "2026 OUTLOOK:", "YEAR")
+    _NAV_NOISE = ("NFL", "NBA", "MLB", "NCAAF", "Soccer", "Tennis", "NHL", "More Sports",
+                  "Watch", "Where to Watch", "Reset All", "Player Name",
+                  "Fantasy Football", "Sign Up")
+
+    def _split_line(self, line: str):
+        """Dynamic replacement for the old fixed-column split: find whichever
+        right-column marker appears first on this line and split there. No
+        marker on the line -> the whole (stripped) line is the left side."""
+        best = None
+        for marker in self._RIGHT_MARKERS:
+            idx = line.find(marker)
+            if idx != -1 and (best is None or idx < best):
+                best = idx
+        if best is None:
+            return line.strip(), ""
+        return line[:best].strip(), line[best:].strip()
 
     def _parse_text(self, text: str) -> List[NormalizedObservation]:
         lines = text.split("\n")
 
-        # Group into blocks, each anchored by a "YEAR ..." header line (the
-        # right-column header row that starts every player's record).
+        # Group into blocks, each anchored by a "YEAR ..." right-column header
+        # (found via marker search, not a fixed column offset -- see _SPLIT_COL
+        # comment above for why a fixed offset silently dropped most blocks).
         blocks = []
         current_header, current = None, []
         for line in lines:
-            left, right = self._split_cols(line)
+            left, right = self._split_line(line)
             if right.startswith("YEAR"):
                 if current_header is not None:
                     blocks.append((current_header, current))
                 current_header, current = right, []
-            else:
+                if left:
+                    current.append((left, ""))  # e.g. "A.J. Brown" sharing the header's own line
+            elif current_header is not None:
                 current.append((left, right))
         if current_header is not None:
             blocks.append((current_header, current))
@@ -131,12 +175,15 @@ class ESPNSeasonProjectionsAdapter(SourceAdapter):
 
         name, team_pos, proj_tokens = None, None, None
         for left, right in block:
-            if left and left not in _STATUS_WORDS and self._ends_with_position(left):
-                team_pos = left
-            elif left and left not in _STATUS_WORDS and name is None:
-                name = left
             if right.startswith("2026 PROJECTIONS"):
                 proj_tokens = right[len("2026 PROJECTIONS"):].split()
+            if not left or left in _STATUS_WORDS or left == "PLAYER" or any(
+                    noise in left for noise in self._NAV_NOISE):
+                continue
+            if team_pos is None and self._ends_with_position(left):
+                team_pos = left
+            elif name is None and not self._ends_with_position(left):
+                name = left
 
         if not name or not team_pos or proj_tokens is None:
             return []  # couldn't confidently locate all three — skip, don't guess
