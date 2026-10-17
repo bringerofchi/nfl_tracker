@@ -213,7 +213,9 @@ class TestPositionScopedStatIsolation(unittest.TestCase):
         # TE gained rush_attempts (informational-only, ESPN weekly-live
         # adapter integration) without gaining rush_yards/rush_tds -- TEs
         # essentially never rush for yardage, but the raw attempt count
-        # is still a real category the source can report.
+        # is still a real category the source can report. This test's
+        # intent (no passing/rushing *yardage* categories for TE) still
+        # holds; only the exact set changed.
         pid = repo.create_player(self.conn, "Blocking TE", "TE")
         defs = fsvc.get_stat_names_for_position(self.conn, "TE")
         self.assertEqual(set(defs), {"receptions", "receiving_yards", "receiving_tds",
