@@ -1,0 +1,103 @@
+........................................................................ [ 27%]
+........................................................................ [ 54%]
+..................................................F...FFF.F...F......... [ 81%]
+................................................                         [100%]
+================================== FAILURES ===================================
+___________ TestSeasonProjectionLocking.test_after_start_date_locks ___________
+
+self = <tests.test_season_projection_locking.TestSeasonProjectionLocking testMethod=test_after_start_date_locks>
+
+    def test_after_start_date_locks(self):
+        repo.set_season_start_date(self.conn, self.season_id, "2026-09-10")
+        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season")
+        locked = repo.ensure_season_lock(self.conn, self.season_id, today="2026-12-01")
+>       self.assertTrue(locked)
+E       AssertionError: False is not true
+
+tests\test_season_projection_locking.py:52: AssertionError
+____ TestSeasonProjectionLocking.test_locked_projection_cannot_be_modified ____
+
+self = <tests.test_season_projection_locking.TestSeasonProjectionLocking testMethod=test_locked_projection_cannot_be_modified>
+
+    def test_locked_projection_cannot_be_modified(self):
+        repo.set_season_start_date(self.conn, self.season_id, "2026-09-10")
+        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season")
+        repo.ensure_season_lock(self.conn, self.season_id, today="2026-09-10")
+>       with self.assertRaises(ValueError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: ValueError not raised
+
+tests\test_season_projection_locking.py:66: AssertionError
+_ TestSeasonProjectionLocking.test_locked_projection_value_unchanged_after_failed_modification_attempt _
+
+self = <tests.test_season_projection_locking.TestSeasonProjectionLocking testMethod=test_locked_projection_value_unchanged_after_failed_modification_attempt>
+
+    def test_locked_projection_value_unchanged_after_failed_modification_attempt(self):
+        repo.set_season_start_date(self.conn, self.season_id, "2026-09-10")
+        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season")
+        repo.ensure_season_lock(self.conn, self.season_id, today="2026-09-10")
+        try:
+            repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4500, scope="season")
+        except ValueError:
+            pass
+        row = self.conn.execute(
+            "SELECT projected_value FROM projections WHERE is_current=1 AND player_id=?", (self.pid,)
+        ).fetchone()
+>       self.assertEqual(row["projected_value"], 4200)  # untouched � the write never happened
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: 4500.0 != 4200
+
+tests\test_season_projection_locking.py:80: AssertionError
+___________ TestSeasonProjectionLocking.test_locking_is_idempotent ____________
+
+self = <tests.test_season_projection_locking.TestSeasonProjectionLocking testMethod=test_locking_is_idempotent>
+
+    def test_locking_is_idempotent(self):
+        repo.set_season_start_date(self.conn, self.season_id, "2026-09-10")
+        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season")
+        first = repo.ensure_season_lock(self.conn, self.season_id, today="2026-09-10")
+        second = repo.ensure_season_lock(self.conn, self.season_id, today="2026-12-01")
+>       self.assertTrue(first)
+E       AssertionError: False is not true
+
+tests\test_season_projection_locking.py:59: AssertionError
+____________ TestSeasonProjectionLocking.test_on_start_date_locks _____________
+
+self = <tests.test_season_projection_locking.TestSeasonProjectionLocking testMethod=test_on_start_date_locks>
+
+    def test_on_start_date_locks(self):
+        repo.set_season_start_date(self.conn, self.season_id, "2026-09-10")
+        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season")
+        locked = repo.ensure_season_lock(self.conn, self.season_id, today="2026-09-10")
+>       self.assertTrue(locked)
+E       AssertionError: False is not true
+
+tests\test_season_projection_locking.py:44: AssertionError
+_ TestSeasonProjectionLocking.test_writing_after_season_start_triggers_lock_automatically _
+
+self = <tests.test_season_projection_locking.TestSeasonProjectionLocking testMethod=test_writing_after_season_start_triggers_lock_automatically>
+
+    def test_writing_after_season_start_triggers_lock_automatically(self):
+        """The lock check happens as a side effect of add_projection itself, not
+        just an explicitly-called maintenance job � so a season-scope write that
+        arrives on/after the start date correctly locks whatever was already
+        current BEFORE evaluating the incoming write."""
+        repo.set_season_start_date(self.conn, self.season_id, "2026-09-10")
+        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season")
+        # No explicit ensure_season_lock call here � passing today= directly to
+        # add_projection (an injectable clock, same pattern as the scheduler's
+        # `now` parameter) proves the lock check is a genuine side effect of the
+        # write path itself, not something only a separate maintenance job does.
+>       with self.assertRaises(ValueError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: ValueError not raised
+
+tests\test_season_projection_locking.py:106: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_season_projection_locking.py::TestSeasonProjectionLocking::test_after_start_date_locks
+FAILED tests/test_season_projection_locking.py::TestSeasonProjectionLocking::test_locked_projection_cannot_be_modified
+FAILED tests/test_season_projection_locking.py::TestSeasonProjectionLocking::test_locked_projection_value_unchanged_after_failed_modification_attempt
+FAILED tests/test_season_projection_locking.py::TestSeasonProjectionLocking::test_locking_is_idempotent
+FAILED tests/test_season_projection_locking.py::TestSeasonProjectionLocking::test_on_start_date_locks
+FAILED tests/test_season_projection_locking.py::TestSeasonProjectionLocking::test_writing_after_season_start_triggers_lock_automatically
+6 failed, 258 passed in 85.22s (0:01:25)

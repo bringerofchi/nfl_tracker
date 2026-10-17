@@ -1,0 +1,31 @@
+Gap rows (current, weekly, unfrozen, source+week locked): 67
+By source: ESPN 46, Yahoo 21
+By (source, week, created-date UTC):
+  ESPN           week 4  2026-10-01  rows=1
+  ESPN           week 4  2026-10-07  rows=45
+  Yahoo          week 4  2026-10-01  rows=21
+
+Correction (audit) records that would be written: 67
+projected_value changes: 0 by construction (--apply verifies with a SHA-256 over every projection_id/projected_value pair and rolls back on any difference)
+Unexpected rows (outside Week [4] / ['ESPN', 'Yahoo']): 0
+
+Sample (first 10): projection_id, week, source, stat, value, created_at, notes
+  25461, wk4, ESPN, receiving_tds, <redacted>, 2026-10-07 13:36:02, 'auto-accepted from import 27'
+  25460, wk4, ESPN, receiving_yards, <redacted>, 2026-10-07 13:36:02, 'auto-accepted from import 27'
+  25457, wk4, ESPN, receiving_tds, <redacted>, 2026-10-07 13:36:01, 'auto-accepted from import 27'
+  25456, wk4, ESPN, receiving_yards, <redacted>, 2026-10-07 13:36:01, 'auto-accepted from import 27'
+  25451, wk4, ESPN, receiving_tds, <redacted>, 2026-10-07 13:35:59, 'auto-accepted from import 27'
+  25450, wk4, ESPN, receiving_yards, <redacted>, 2026-10-07 13:35:58, 'auto-accepted from import 27'
+  25432, wk4, ESPN, receiving_tds, <redacted>, 2026-10-07 13:35:40, 'auto-accepted from import 27'
+  25431, wk4, ESPN, receiving_yards, <redacted>, 2026-10-07 13:35:40, 'auto-accepted from import 27'
+  25437, wk4, ESPN, receiving_tds, <redacted>, 2026-10-07 13:35:53, 'auto-accepted from import 27'
+  25436, wk4, ESPN, receiving_yards, <redacted>, 2026-10-07 13:35:50, 'auto-accepted from import 27'
+
+Week 4 status now: {'week_id': 4, 'status': 'completed'}
+Already-frozen rows provably created after their lock (not touched; excluded from comparisons by the eligibility rule at read time): 148
+
+Backup written: db/tracker.db.bak-20261007-pre-lockgap
+Frozen + tagged + audited: 67 rows
+Week 4 status reverted: 1
+projected_value fingerprint unchanged: 0ca067b53dbe479591072fb399b13e4c159cb1732ba816c96ae33dd3ed61915f
+Gap rows remaining: 0

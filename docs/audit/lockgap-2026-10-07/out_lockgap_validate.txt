@@ -1,0 +1,20 @@
+live:   db/tracker.db
+backup: db\tracker.db.bak-20261007-pre-lockgap
+
+[PASS] projection row count unchanged  -- 25475 -> 25475
+[PASS] projected_value sum unchanged  -- 1332301.693979862 -> 1332301.693979862
+[PASS] projected_value fingerprint (every id/value pair) unchanged
+[PASS] corrections increased by exactly 67  -- 1952 -> 2019
+[PASS] 67 rows newly frozen
+[PASS] 67 rows newly tagged late-after-lock
+[PASS] no unfrozen current rows remain in any locked source/week  -- remaining=0
+[PASS] Week 4 status is 'upcoming'  -- upcoming
+[PASS] no week left as 'completed'
+[PASS] Velus Jones Jr.: no eligible Week 4 projection  -- {'rush_yards': None, 'rush_tds': None, 'receptions': None, 'receiving_yards': None, 'receiving_tds': None, 'fumbles_lost': None, 'rush_attempts': None}
+[PASS] Velus Jones Jr.: his 5 rows still exist (only excluded from comparison)
+[PASS] Deion Burks: keeps his three eligible components  -- {'receptions': None, 'receiving_yards': None, 'receiving_tds': None, 'rush_yards': <redacted>, 'rush_tds': <redacted>, 'fumbles_lost': None, 'rush_attempts': <redacted>}
+[PASS] Deion Burks: late components excluded (missing, not zero)
+[PASS] Deion Burks: projection flagged incomplete, late components listed as missing  -- missing=['receptions', 'receiving_yards', 'receiving_tds', 'fumbles_lost']
+  note: ESPN never supplies receptions/fumbles_lost, so every ESPN projection is already 'incomplete'; the `missing` list above is what distinguishes Burks.
+
+RESULT: ALL CHECKS PASSED

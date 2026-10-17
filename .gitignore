@@ -8,3 +8,10 @@ __pycache__/
 # yahoo_week3_pdfs) and are archival inputs, not app code or the live db.
 # Keep them on disk locally; stop committing them to git.
 uploads/
+
+# Local-only run output and recovery points (not tracked; keep on disk).
+# Sanitized lock-gap evidence lives in docs/audit/lockgap-2026-10-07/.
+out_*.txt
+week3_actuals_out.txt
+db/*.bak-*
+!docs/audit/lockgap-2026-10-07/out_*.txt
