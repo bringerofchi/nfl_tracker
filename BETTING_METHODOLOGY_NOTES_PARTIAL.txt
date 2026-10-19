@@ -1,0 +1,35 @@
+SHARED SPORTS-BETTING METHODOLOGY — PARTIAL CHAT HISTORY RECOVERY
+Created: 2026-10-18
+
+COVERAGE
+Partial recovery from saved context and recent conversation summaries only. Not a complete archived-chat audit. Reconcile against a full ChatGPT export if one becomes available.
+
+VERIFICATION STANDARD
+- Verify current claims against current sources. Verify odds/lines separately from the analytical argument.
+- If the user supplies a live sportsbook-screen price, use it as the price in hand; do not substitute stale or assumed prices without flagging them.
+- Record source timestamps. Distinguish verified facts, assumptions, missing inputs, and unresolved uncertainty.
+- Do not force bets. If evidence fails the gates, classify WATCH, PASS, or REJECT rather than manufacturing an edge.
+- Test the antithesis: identify what would make the thesis wrong before recommending a wager.
+- ATS records and trends are context, not automatically predictive evidence.
+
+DECISION LABELS AND AFTER-ACTION REVIEW
+- Use clear labels: BET, BET-BOOST, WATCH, PASS, REJECT.
+- Keep straight bets and parlays separate in performance evaluation.
+- Track thesis vs. actual outcome, signal outcome, confidence calibration, market movement vs. closing result, antithesis result, process verdict, and action taken.
+- Distinguish process error, calibration error, signal failure, and normal variance. Preserve failed-signal evidence; do not rewrite methodology after seeing outcomes.
+
+PRICE / PROBABILITY / UNIT CONTROLS
+- HR profit-boost evidence gate: confirmed lineup/slot/starter; verified or regressed split sample; known park/roof; current price in hand; vig measured or explicitly flagged as assumed; no more than one unknown input that could move probability by >2 percentage points; antithesis tested.
+- The saved HR boost framework also requires conservative cash probability p_c >= 20% and an error-tolerance calculation. Consult the original framework for the exact formula; this summary does not reconstruct it.
+- Saved default unit: $6. Confirm current validity before a live stake calculation.
+- When the user decides to place a qualifying boost bet, saved preference is to use the maximum allowed stake.
+- CFB Edge Lab backtests use the project spec's fixed -110 unit-accounting convention; do not conflate this with live sportsbook prices.
+
+BOOSTS / TOKENS
+Record token type, eligible event/market, odds range, max stake, expiry, and parlay restrictions. Verify current details before use; historical token notes do not establish that an offer is still active. Keep boost EV separate from unboosted performance.
+
+INFRASTRUCTURE PRINCIPLE
+Prove the concept first, measure the actual bottleneck, and invest in paid APIs/infrastructure only when evidence shows the added capability materially removes a demonstrated limitation.
+
+LIMITATION
+This is a cross-project summary, not a replacement for original project specifications or the full archived conversations.
