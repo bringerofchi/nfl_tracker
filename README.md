@@ -36,6 +36,27 @@ Then open http://localhost:5050
   flags it in the Review Queue rather than silently overwriting
 - Ranking entry, CSV export, dashboard completeness widget
 
+**Running the main suite, `tests/`** (current as of 2026-10-17; the phase
+notes below quote older, smaller counts):
+
+```
+python3 -m unittest discover -s tests
+```
+
+This runs 232 tests. Six tests in `tests/test_season_projection_locking.py`
+fail on the current code; the cause has not been diagnosed. Treat those six as
+the known baseline, so a change is clean when it adds no failures beyond them.
+Use `unittest` rather than `pytest`: `espn_adapter/live_test.py` makes an
+unguarded live network call at import time and matches pytest's default
+collection pattern, and `unittest discover -s tests` never collects it.
+
+The separately located `espn_adapter/` package has its own test file,
+`espn_adapter/test_espn_adapter.py`, which is not part of the command above and
+is not counted in the 232. It is written for pytest and is run on its own:
+`python3 -m pytest -q espn_adapter/test_espn_adapter.py` (19 tests passed when
+checked on 2026-10-17). Do not run bare `pytest` at the repo root, since that
+also collects `espn_adapter/live_test.py`.
+
 ## Phase 4B: scheduler (this update)
 Orchestration around the already-proven `ingest_collector_batch()` — nothing
 about the data/ingestion architecture changed, per your framing.
@@ -716,22 +737,100 @@ actuals source, for deterministic source selection.
   suite for identity resolution/aliases/versioning/conflicts/rankings). Run with
   `python3 -m unittest discover -s tests -v`.
 
+## Source status and canonical actuals
+The database flags the source `NFL` as the canonical actuals source, but all
+actuals currently on file were ingested from ESPN. Yahoo data is retained for
+comparison and validation and is not promoted to canonical. The mismatch
+between the canonical-source flag and the actuals data is an open issue; no
+database changes are included in this cleanup.
+
+Background: `sources.is_canonical_actuals = 'yes'` is set only for the source
+named `NFL`, and a unique index (`idx_single_canonical_actuals_source`)
+guarantees at most one canonical actuals source at a time. Yahoo, ESPN, and
+The Athletic are stored as separate, source-specific sources and are never
+merged into a consensus.
+
+Yahoo status: `ingestion/yahoo_weekly_adapter.py` (`YahooWeeklyPdfAdapter`)
+exists and was used for the Week 2-6 weekly loads (`run_yahoo_week*_pull.py`).
+It is a specimen-based path, not a live feed: it reads a JSON payload that
+`scripts/parse_yahoo_weekly_playerlist.py` builds from Yahoo Player List PDFs
+exported by hand. It is not registered in the scheduler's `ADAPTER_REGISTRY`,
+has no dedicated tests in `tests/`, and its own docstring lists known gaps (no
+QB completions or attempts, no targets or return stats, limited TE rushing).
+There is no automated or live Yahoo acquisition. Earlier phase sections that
+call the Yahoo adapters unbuilt reflect when they were written; the "Not yet
+built" section at the end of this document is the current account.
+
+## Limitations
+- The app is local-first; it is not a hosted multi-user service.
+- The scheduler logic is implemented, but external task scheduling is still
+  required for unattended collection.
+- No source adapter should be trusted beyond the real specimen and acquisition
+  path it was tested against.
+- Source comparisons remain source-specific; the app does not manufacture a
+  consensus projection.
+
+## Research/AAR value
+The system's high-value extract is a source-level record of preseason and weekly
+projections, actual statistics, rankings, observation provenance,
+identity-review outcomes, conflicts, corrections, and collection-run health.
+Keep these distinguishable by source and version rather than merging them into
+an invented consensus. `db/tracker.db` is the operational evidence store; before
+sharing a database or archive, remove private uploads, API credentials,
+subscriber-source material, and anything you lack permission to redistribute.
+
+## Recent changes (2026-09-07)
+- **`stat_name` integrity:** `validate_stat_value(conn, stat_name, value)` now
+  also checks `stat_name` against `stat_definitions`, so an unrecognized
+  category (for example a bare `fantasy_points` total) can no longer
+  auto-accept into the trusted `projections` table. Covers both the
+  auto-accept and manual review-accept paths. Tests are in
+  `tests/test_ingestion_pipeline.py`.
+- **Per-source weekly accuracy:** `/players/<id>` previously defaulted to
+  `source_name="User"`. It now renders one Accuracy Summary / Weekly View /
+  Trend block per source via `get_weekly_projection_sources()` and
+  `player_weekly_comparison_by_source()` in `fantasy/service.py`. Test is in
+  `tests/test_fantasy_service.py`.
+
 ## Not yet built — authoritative current-state summary
 This section supersedes any "Not built" notes inside individual phase
 sections above, which reflect what was true only *at the time that phase
 was written* and may since have been completed. This section is the one to trust.
 
-**Current canonical status: Phase 4C — one real adapter implemented and
-tested (The Athletic season-long projections/rankings, from a genuine
-provided specimen). Yahoo, ESPN editorial rankings, and The Athletic's live
-weekly rankings remain research-status; source adapters for those three
-are still blocked pending genuine specimens.**
+**Current canonical status: Phase 4C. Adapters that exist today:
+`AthleticSeasonXlsxAdapter` and `ESPNSeasonProjectionsAdapter` (season-long,
+each built from a genuine specimen, tested, and registered with the
+scheduler); `ESPNWeeklyLiveAdapter` (weekly projections and actuals from
+ESPN's live `kona_player_info` endpoint; registered, with its parsing tested
+against a captured specimen but no automated test of a successful live fetch);
+and two specimen-based weekly adapters, `AthleticWeeklyXlsxAdapter` and
+`YahooWeeklyPdfAdapter`, which read files you supply, are not registered with
+the scheduler, and have no dedicated tests in `tests/`. ESPN editorial rankings
+and The Athletic's live weekly rankings remain research-status; neither is on
+file. There is no live or automated Yahoo acquisition (see "Source status and
+canonical actuals" above). Statements in this section other than those about
+adapters and rankings are as originally written and were not re-verified on
+2026-10-17.**
 
-- **Yahoo, ESPN editorial rankings, and The Athletic live weekly rankings
-  acquisition** — not validated. No production adapter exists for any of
-  the three. No fixtures were invented for them.
-- **A real HTTP-based `SourceAdapter`** — blocked by this sandbox's network
-  allowlist, not by the architecture (see Phase 4A notes above).
+- **Yahoo live or automated acquisition** — not built. Yahoo data enters only
+  through the specimen-based weekly adapter described above, which is not
+  registered with the scheduler and has no dedicated tests.
+- **ESPN editorial rankings and The Athletic live weekly rankings
+  acquisition** — not validated, as originally written. No fixtures were
+  invented for them.
+- **A real HTTP-based `SourceAdapter`** — two exist, both calling ESPN's live
+  `kona_player_info` endpoint. `ESPNWeeklyLiveAdapter` (`ingestion/`) is
+  registered with the scheduler and used by the `run_espn_week*_pull.py`
+  scripts; its parsing is tested against a captured specimen, no automated test
+  performs a successful live fetch, and that check is
+  `scripts/live_check_espn_weekly.py`, outside the automated tests.
+  `ESPNSourceAdapter` (the standalone `espn_adapter/` project) is not
+  registered and is not used by the app or the pull scripts; it was verified
+  live by hand (see `espn_adapter/FINDINGS.md`), and the automated tests in
+  that package cover its fixture-based sibling `LocalFileSourceAdapter`, not
+  its HTTP path. The original note that HTTP adapters were blocked by the
+  authoring sandbox's network allowlist is historical. No HTTP-based adapter
+  exists for Yahoo or The Athletic.
 - **A UI page for season-scope (preseason/season-long) projections and
   rankings** — the data is fully stored, versioned, and queryable, but the
   dashboard and player-detail pages are still week-indexed and won't
@@ -747,6 +846,6 @@ are still blocked pending genuine specimens.**
 
 **The next meaningful action**: obtain one genuine captured ranking
 specimen (browser network-tab capture or saved authenticated page) for
-Yahoo, ESPN's editorial rankings, or The Athletic's live weekly rankings —
-or provide an updated copy of the season-long projections file to re-run
-the existing adapter against.
+ESPN's editorial rankings or The Athletic's live weekly rankings — or provide
+an updated copy of the season-long projections file to re-run the existing
+adapter against.

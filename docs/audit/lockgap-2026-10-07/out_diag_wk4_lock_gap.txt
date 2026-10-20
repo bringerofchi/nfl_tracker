@@ -1,0 +1,32 @@
+=== weekly_projection_locks (all rows) ===
+  {'source_name': 'ESPN', 'week_number': 1, 'locked_at': '2026-09-17'}
+  {'source_name': 'The Athletic', 'week_number': 1, 'locked_at': '2026-09-30'}
+  {'source_name': 'ESPN', 'week_number': 2, 'locked_at': '2026-09-20'}
+  {'source_name': 'The Athletic', 'week_number': 2, 'locked_at': '2026-09-20'}
+  {'source_name': 'Yahoo', 'week_number': 2, 'locked_at': '2026-09-18'}
+  {'source_name': 'ESPN', 'week_number': 3, 'locked_at': '2026-09-24'}
+  {'source_name': 'The Athletic', 'week_number': 3, 'locked_at': '2026-09-24'}
+  {'source_name': 'Yahoo', 'week_number': 3, 'locked_at': '2026-09-24'}
+  {'source_name': 'ESPN', 'week_number': 4, 'locked_at': '2026-10-01'}
+  {'source_name': 'The Athletic', 'week_number': 4, 'locked_at': '2026-10-01'}
+  {'source_name': 'Yahoo', 'week_number': 4, 'locked_at': '2026-10-01'}
+
+=== Current weekly projection rows with is_frozen=0 whose source+week IS locked ===
+(source_name with ' (live)' mapped to its base source, same as freeze_late_weekly_rows.py)
+  {'source_name': 'ESPN', 'week_number': 4, 'n': 46, 'players': 17, 'first_created': '2026-10-01', 'last_created': '2026-10-07'}
+  {'source_name': 'Yahoo', 'week_number': 4, 'n': 21, 'players': 5, 'first_created': '2026-10-01', 'last_created': '2026-10-01'}
+
+=== Same rows, but only those created AFTER their lock date (true late arrivals) ===
+  {'source_name': 'ESPN', 'week_number': 4, 'n': 45, 'players': 17}
+
+=== Velus Jones Jr. -- every projection row, any week/source ===
+  {per-player projection values redacted}
+  {per-player projection values redacted}
+  {per-player projection values redacted}
+  {per-player projection values redacted}
+  {per-player projection values redacted}
+
+=== Week 4 ESPN weekly projections: frozen vs unfrozen, by created date ===
+  {'created': '2026-10-01', 'is_frozen': 0, 'n': 1, 'players': 1}
+  {'created': '2026-10-01', 'is_frozen': 1, 'n': 1334, 'players': 353}
+  {'created': '2026-10-07', 'is_frozen': 0, 'n': 45, 'players': 17}
