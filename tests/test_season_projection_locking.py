@@ -25,13 +25,15 @@ class TestSeasonProjectionLocking(unittest.TestCase):
             os.remove(self.db_path)
 
     def test_no_start_date_never_locks(self):
-        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season")
+        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season",
+                           today="2026-09-01")
         locked = repo.ensure_season_lock(self.conn, self.season_id, today="2099-01-01")
         self.assertFalse(locked)  # no start_date set at all — never locks regardless of date
 
     def test_before_start_date_not_locked(self):
         repo.set_season_start_date(self.conn, self.season_id, "2026-09-10")
-        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season")
+        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season",
+                           today="2026-09-01")
         locked = repo.ensure_season_lock(self.conn, self.season_id, today="2026-09-01")
         self.assertFalse(locked)
         row = self.conn.execute("SELECT is_frozen FROM projections WHERE is_current=1").fetchone()
@@ -39,7 +41,8 @@ class TestSeasonProjectionLocking(unittest.TestCase):
 
     def test_on_start_date_locks(self):
         repo.set_season_start_date(self.conn, self.season_id, "2026-09-10")
-        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season")
+        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season",
+                           today="2026-09-01")
         locked = repo.ensure_season_lock(self.conn, self.season_id, today="2026-09-10")
         self.assertTrue(locked)
         row = self.conn.execute("SELECT is_frozen FROM projections WHERE is_current=1").fetchone()
@@ -47,13 +50,15 @@ class TestSeasonProjectionLocking(unittest.TestCase):
 
     def test_after_start_date_locks(self):
         repo.set_season_start_date(self.conn, self.season_id, "2026-09-10")
-        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season")
+        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season",
+                           today="2026-09-01")
         locked = repo.ensure_season_lock(self.conn, self.season_id, today="2026-12-01")
         self.assertTrue(locked)
 
     def test_locking_is_idempotent(self):
         repo.set_season_start_date(self.conn, self.season_id, "2026-09-10")
-        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season")
+        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season",
+                           today="2026-09-01")
         first = repo.ensure_season_lock(self.conn, self.season_id, today="2026-09-10")
         second = repo.ensure_season_lock(self.conn, self.season_id, today="2026-12-01")
         self.assertTrue(first)
@@ -61,14 +66,16 @@ class TestSeasonProjectionLocking(unittest.TestCase):
 
     def test_locked_projection_cannot_be_modified(self):
         repo.set_season_start_date(self.conn, self.season_id, "2026-09-10")
-        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season")
+        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season",
+                           today="2026-09-01")
         repo.ensure_season_lock(self.conn, self.season_id, today="2026-09-10")
         with self.assertRaises(ValueError):
             repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4500, scope="season")
 
     def test_locked_projection_value_unchanged_after_failed_modification_attempt(self):
         repo.set_season_start_date(self.conn, self.season_id, "2026-09-10")
-        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season")
+        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season",
+                           today="2026-09-01")
         repo.ensure_season_lock(self.conn, self.season_id, today="2026-09-10")
         try:
             repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4500, scope="season")
@@ -85,9 +92,11 @@ class TestSeasonProjectionLocking(unittest.TestCase):
         nothing is actually being modified. Only a genuine attempted change
         to frozen data should raise."""
         repo.set_season_start_date(self.conn, self.season_id, "2026-09-10")
-        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season")
+        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season",
+                           today="2026-09-01")
         repo.ensure_season_lock(self.conn, self.season_id, today="2026-09-10")
-        new_id, was_new = repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season")
+        new_id, was_new = repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season",
+                           today="2026-09-01")
         self.assertFalse(was_new)  # no error, no new version — just recognized as unchanged
         rows = self.conn.execute("SELECT COUNT(*) c FROM projections WHERE player_id=?", (self.pid,)).fetchone()["c"]
         self.assertEqual(rows, 1)
@@ -98,7 +107,8 @@ class TestSeasonProjectionLocking(unittest.TestCase):
         arrives on/after the start date correctly locks whatever was already
         current BEFORE evaluating the incoming write."""
         repo.set_season_start_date(self.conn, self.season_id, "2026-09-10")
-        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season")
+        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season",
+                           today="2026-09-01")
         # No explicit ensure_season_lock call here — passing today= directly to
         # add_projection (an injectable clock, same pattern as the scheduler's
         # `now` parameter) proves the lock check is a genuine side effect of the
@@ -146,7 +156,8 @@ class TestSeasonProjectionLocking(unittest.TestCase):
         from ingestion import pipeline
 
         repo.set_season_start_date(self.conn, self.season_id, "2026-09-10")
-        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season")
+        repo.add_projection(self.conn, self.pid, self.season_id, None, "pass_yards", 4200, scope="season",
+                           today="2026-09-01")
         repo.ensure_season_lock(self.conn, self.season_id, today="2026-12-01")
 
         src_path = tempfile.mktemp(suffix=".json")
