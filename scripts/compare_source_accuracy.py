@@ -18,6 +18,10 @@ Method (all through the app's own fantasy.service, no duplicated scoring logic):
     sources are comparable, so each source is scored on the same players
   - the complete-only view further requires every source's projection to be complete
   - uses the app's late-after-lock exclusion (comparison_only=True)
+  - the "shared stats" views drop receptions from BOTH the projected and the actual
+    score (via the app's own calculate_fantasy_points), so ESPN, whose Weeks 2-6
+    projections carry no receptions, is scored on the same basis as Yahoo and
+    The Athletic. This is the basis of the 2026-10-07 baseline.
 """
 import argparse
 import os
@@ -30,9 +34,14 @@ sys.path.insert(0, REPO_ROOT)
 DB_PATH = os.environ.get("NFL_TRACKER_DB_PATH") or os.path.join(REPO_ROOT, "db", "tracker.db")
 
 from fantasy import service  # noqa: E402
-from fantasy.scoring import STAT_TO_SCORING_KEY  # noqa: E402
+from fantasy.scoring import STAT_TO_SCORING_KEY, calculate_fantasy_points  # noqa: E402
 
 POSITIONS = ("QB", "RB", "WR", "TE")
+DROPPED_FOR_SHARED = ("receptions",)
+
+
+def _without(values):
+    return {k: v for k, v in values.items() if k not in DROPPED_FOR_SHARED}
 
 
 def main():
@@ -66,6 +75,11 @@ def main():
                                                               p["position"], src)
                     c["missing"] = [s for s, v in vals.items() if s in STAT_TO_SCORING_KEY and v is None]
                     c["position"] = p["position"]
+                    act = service.get_actual_stat_values(conn, p["player_id"], week_id[wk], p["position"])
+                    nr_p = calculate_fantasy_points(_without(vals)).total_points
+                    nr_a = calculate_fantasy_points(_without(act)).total_points
+                    c["nr_difference"] = round(nr_a - nr_p, 2)
+                    c["nr_absolute_difference"] = round(abs(nr_a - nr_p), 2)
                     rows.setdefault((p["player_id"], wk), {})[src] = c
 
     if not rows:
@@ -107,8 +121,9 @@ def main():
                 desc = ", ".join(f"{s} {c}/{n_pos}" for s, c in sorted(miss.items())) or "none"
                 w(f"- {src} {pos} (n={n_pos}): {desc}")
 
-    def block(title, filt, pos=None, srcs=None):
+    def block(title, filt, pos=None, srcs=None, shared=False):
         srcs = srcs or sources
+        ak, dk = ("nr_absolute_difference", "nr_difference") if shared else ("absolute_difference", "difference")
         keys = [k for k, v in rows.items() if all(s in v for s in srcs) and filt(v)
                 and (pos is None or v[srcs[0]]["position"] == pos)]
         w("")
@@ -120,12 +135,38 @@ def main():
         w("| Source | MAE | Bias (actual - projected) | Complete projections |")
         w("|---|---|---|---|")
         for src in srcs:
-            a = [rows[k][src]["absolute_difference"] for k in keys]
-            d = [rows[k][src]["difference"] for k in keys]
+            a = [rows[k][src][ak] for k in keys]
+            d = [rows[k][src][dk] for k in keys]
             comp = sum(1 for k in keys if rows[k][src]["projection_complete"])
             w(f"| {src} | {st.mean(a):.2f} | {st.mean(d):+.2f} | {comp}/{len(keys)} ({100*comp/len(keys):.0f}%) |")
 
     block("All sources comparable (headline)", lambda v: True)
+
+    w("")
+    w("## Shared stats: receptions removed from projected AND actual points")
+    w("Fair three-way view for Weeks 2-6. Same basis as the 2026-10-07 baseline (Weeks 2-4: ESPN 4.62,")
+    w("Yahoo 4.49, Athletic 4.52). Bias is actual - projected on the receptions-free score, so it is")
+    w("not comparable to the PPR bias above. The complete columns still count receptions as a stat.")
+    block("Shared stats, all sources comparable", lambda v: True, shared=True)
+    for pos in POSITIONS:
+        block(f"Shared stats, position {pos}", lambda v: True, pos=pos, shared=True)
+    w("")
+    w("### Shared stats: MAE by week")
+    w("| Week | n | " + " | ".join(sources) + " |")
+    w("|---|---|" + "---|" * len(sources))
+    for wk in weeks:
+        keys = [k for k, v in rows.items() if k[1] == wk and all(s in v for s in sources)]
+        if keys:
+            cells = [f"{st.mean(rows[k][s]['nr_absolute_difference'] for k in keys):.2f}" for s in sources]
+            w(f"| {wk} | {len(keys)} | " + " | ".join(cells) + " |")
+        else:
+            w(f"| {wk} | 0 | " + " | ".join("-" for _ in sources) + " |")
+    w("")
+    w("Weeks 2-4 only (to line up with the Oct 7 baseline):")
+    keys24 = [k for k, v in rows.items() if 2 <= k[1] <= 4 and all(s in v for s in sources)]
+    if keys24:
+        w(f"n = {len(keys24)}; " + "; ".join(
+            f"{s} {st.mean(rows[k][s]['nr_absolute_difference'] for k in keys24):.2f}" for s in sources))
     block("Complete projections only, all sources",
           lambda v: all(v[s]["projection_complete"] for s in sources))
     w("")
