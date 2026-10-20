@@ -738,15 +738,19 @@ actuals source, for deterministic source selection.
   `python3 -m unittest discover -s tests -v`.
 
 ## Source status and canonical actuals
-The database flags the source `NFL` as the canonical actuals source, but all
-actuals currently on file were ingested from ESPN. Yahoo data is retained for
-comparison and validation and is not promoted to canonical. The mismatch
-between the canonical-source flag and the actuals data is an open issue; no
-database changes are included in this cleanup.
+ESPN is the canonical actuals source: every actuals row on file (Weeks 1-6) was
+ingested from ESPN, and the `is_canonical_actuals` flag was moved from the
+placeholder `NFL` source to `ESPN` on 2026-10-19 with
+`scripts/set_canonical_actuals_source.py` (dry run by default; `--apply` takes
+a backup, changes only that flag in one transaction, and validates that exactly
+one source is canonical and no statistics counts changed). Before that date the
+flag pointed at `NFL`, which holds no actuals, so every projected-vs-actual
+comparison returned no actual. Yahoo data is retained for comparison and
+validation and is not promoted to canonical.
 
-Background: `sources.is_canonical_actuals = 'yes'` is set only for the source
-named `NFL`, and a unique index (`idx_single_canonical_actuals_source`)
-guarantees at most one canonical actuals source at a time. Yahoo, ESPN, and
+Background: `sources.is_canonical_actuals = 'yes'` can be set on only one source
+at a time (a unique index, `idx_single_canonical_actuals_source`, guarantees at
+most one canonical actuals source). Yahoo, ESPN, and
 The Athletic are stored as separate, source-specific sources and are never
 merged into a consensus.
 
