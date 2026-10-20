@@ -92,6 +92,21 @@ STAT_ID_TO_NAME: dict[str, str] = {
     "43": "receiving_tds",
 }
 
+# Projection-only IDs (statSourceId=1 entries). ESPN's PROJECTED stat dicts carry
+# receptions under ID 53 and never under ID 41, so before this mapping every ESPN
+# weekly projection was stored with receptions missing (scored as 0 in PPR).
+# Evidence (2026-10-19, live Week 6 pull, scripts/diag_espn_projected_stat_ids.py):
+#   (a) In ACTUAL entries IDs 41 and 53 co-occur in 184/184 RB/WR/TE entries with
+#       identical values, so 53 is the same quantity as the box-score-verified 41.
+#   (b) For the 12 highest-projected RB/WR/TE entries, mapped PPR was 1.3-7.3 points
+#       below ESPN's own appliedTotal; adding ID 53 as receptions closed every one to
+#       within ~0.24 (most within 0.15). Small residuals remain, unexplained.
+# Applies to projections ONLY: actuals already carry receptions as ID 41, and mapping
+# 53 there too would record every reception twice.
+PROJECTION_ONLY_STAT_ID_TO_NAME: dict[str, str] = {
+    "53": "receptions",
+}
+
 # Never map or emit this ID under any stat_name -- ESPN's own derived
 # PPR total, not a raw statistic. Kept explicit (rather than just an
 # absence from the dict above) so a future edit adding more IDs can't

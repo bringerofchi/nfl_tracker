@@ -19,7 +19,11 @@ from __future__ import annotations
 from typing import Any, Iterable
 
 from ingestion.collector import NormalizedObservation
-from ingestion.espn_weekly_stat_map import STAT_ID_TO_NAME, FORBIDDEN_STAT_KEYS
+from ingestion.espn_weekly_stat_map import (
+    STAT_ID_TO_NAME,
+    FORBIDDEN_STAT_KEYS,
+    PROJECTION_ONLY_STAT_ID_TO_NAME,
+)
 
 # defaultPositionId -> position string, matching this app's convention
 # (see raw_observations rows already in this DB: {"position": "QB", ...}).
@@ -133,6 +137,8 @@ def extract_raw_stat_observations(
         if raw_id in FORBIDDEN_STAT_KEYS:
             continue  # defensive; appliedTotal lives one level up in practice, not in this dict
         stat_name = STAT_ID_TO_NAME.get(raw_id)
+        if stat_name is None and data_type == "projection":
+            stat_name = PROJECTION_ONLY_STAT_ID_TO_NAME.get(raw_id)
         if stat_name is None:
             continue  # unmapped ID -- not one of the 9 locked categories; skip, don't guess
         observations.append(NormalizedObservation(
